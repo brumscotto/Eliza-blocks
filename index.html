@@ -1,0 +1,2566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Block Craft 3D - Mobile Voxel Builder</title>
+  <!-- Playful legible game typography with clean system fallbacks -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+  <!-- Three.js r128 primary CDN (with runtime unpkg fallback in script) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <style>
+    /* =========================================================================
+       BASE & MOBILE VIEWPORT LOCK
+       ========================================================================= */
+    :root {
+      --font-display: 'Fredoka', system-ui, -apple-system, sans-serif;
+      --font-body: 'Nunito', system-ui, -apple-system, sans-serif;
+      --glass-bg: rgba(18, 26, 42, 0.68);
+      --glass-border: rgba(255, 255, 255, 0.24);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background: #67c2ff;
+      font-family: var(--font-body);
+      color: #ffffff;
+      overscroll-behavior: none;
+    }
+
+    #game-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    canvas#three-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    /* Non-interactive overlays ALWAYS have pointer-events: none */
+    #underwater-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      background: radial-gradient(circle at 50% 45%, rgba(56, 189, 248, 0.24), rgba(2, 132, 199, 0.45));
+      opacity: 0;
+      transition: opacity 0.18s ease;
+    }
+
+    #underwater-overlay.visible {
+      opacity: 1;
+    }
+
+    /* =========================================================================
+       CENTER CROSSHAIR & TARGET HINT
+       ========================================================================= */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 24px;
+      height: 24px;
+      pointer-events: none;
+      z-index: 15;
+    }
+
+    #crosshair::before,
+    #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255, 255, 255, 0.94);
+      border-radius: 2px;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
+    }
+
+    #crosshair::before {
+      top: 50%;
+      left: 2px;
+      right: 2px;
+      height: 2.5px;
+      transform: translateY(-50%);
+    }
+
+    #crosshair::after {
+      left: 50%;
+      top: 2px;
+      bottom: 2px;
+      width: 2.5px;
+      transform: translateX(-50%);
+    }
+
+    #crosshair.blueprint-target::before,
+    #crosshair.blueprint-target::after {
+      background: #38f9d7;
+      box-shadow: 0 0 8px rgba(56, 249, 215, 0.95);
+    }
+
+    #target-hint {
+      position: fixed;
+      top: calc(50% + 22px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.82);
+      border: 1.5px solid rgba(56, 249, 215, 0.7);
+      color: #e0f2fe;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      pointer-events: none;
+      z-index: 15;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      white-space: nowrap;
+      backdrop-filter: blur(6px);
+    }
+
+    #target-hint.visible {
+      opacity: 1;
+    }
+
+    /* =========================================================================
+       TOP HUD BAR
+       ========================================================================= */
+    #top-hud {
+      position: fixed;
+      top: calc(10px + var(--safe-top));
+      left: calc(10px + var(--safe-left));
+      right: calc(10px + var(--safe-right));
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      pointer-events: none;
+      z-index: 25;
+    }
+
+    .hud-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      pointer-events: auto;
+    }
+
+    .hud-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 40px;
+      padding: 0 12px;
+      border-radius: 14px;
+      border: 2px solid var(--glass-border);
+      background: var(--glass-bg);
+      color: #ffffff;
+      font-family: var(--font-display);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      touch-action: manipulation;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+      transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .hud-btn:active {
+      transform: scale(0.93);
+    }
+
+    .hud-btn.icon-only {
+      width: 40px;
+      padding: 0;
+    }
+
+    .hud-btn.active {
+      background: linear-gradient(180deg, #38bdf8, #0284c7);
+      border-color: #bae6fd;
+      box-shadow: 0 4px 14px rgba(14, 165, 233, 0.45);
+    }
+
+    .hud-btn.amber-active {
+      background: linear-gradient(180deg, #fbbf24, #d97706);
+      border-color: #fef3c7;
+    }
+
+    .hud-btn svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    /* Active Blueprint Status Pill */
+    #blueprint-pill {
+      position: fixed;
+      top: calc(58px + var(--safe-top));
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 6px 8px;
+      background: rgba(15, 23, 42, 0.88);
+      border: 2px solid rgba(56, 249, 215, 0.65);
+      border-radius: 20px;
+      padding: 6px 10px 6px 12px;
+      font-family: var(--font-display);
+      font-size: 12.5px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+      z-index: 25;
+      max-width: calc(100vw - 20px);
+    }
+
+    #blueprint-pill.visible {
+      display: flex;
+    }
+
+    .bp-pill-info {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    #bp-progress-text {
+      color: #5eead4;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .bp-pill-actions {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .bp-mini-btn {
+      border: 1.5px solid rgba(255, 255, 255, 0.24);
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-family: var(--font-display);
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+      color: #fff;
+      background: rgba(51, 65, 85, 0.9);
+      transition: transform 0.1s ease, background 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .bp-mini-btn:active {
+      transform: scale(0.92);
+    }
+
+    .bp-mini-btn.rotate-btn {
+      background: linear-gradient(180deg, #38bdf8, #0284c7);
+      border-color: rgba(186, 230, 253, 0.6);
+    }
+
+    .bp-mini-btn.autobuild-btn {
+      background: linear-gradient(180deg, #4ade80, #16a34a);
+      border-color: rgba(187, 247, 208, 0.6);
+    }
+
+    .bp-mini-btn.autobuild-btn.running {
+      background: linear-gradient(180deg, #fbbf24, #d97706);
+      border-color: rgba(254, 243, 199, 0.7);
+    }
+
+    .bp-mini-btn.cancel-btn {
+      background: linear-gradient(180deg, #f87171, #dc2626);
+      border-color: rgba(254, 202, 202, 0.5);
+      padding: 4px 8px;
+    }
+
+    /* Floating Zoom Level Badge */
+/* ... existing code ... -->
+    .danger-cta {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 14px;
+      border: none;
+      background: linear-gradient(180deg, #f87171, #dc2626);
+      box-shadow: 0 4px 0 #991b1b;
+      color: #ffffff;
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    /* Enhanced Blueprint Picker Modal */
+    #blueprint-modal .modal-card {
+      max-width: 540px;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 16px;
+    }
+
+    .bp-filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .bp-filter-pill {
+      border: 1.5px solid rgba(255, 255, 255, 0.22);
+      background: rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      font-family: var(--font-display);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 11px;
+      border-radius: 999px;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    }
+
+    .bp-filter-pill:active {
+      transform: scale(0.94);
+    }
+
+    .bp-filter-pill.active {
+      background: linear-gradient(180deg, #38bdf8, #0284c7);
+      border-color: #bae6fd;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+    }
+
+    .blueprint-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      max-height: 75vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+      padding: 2px 2px 6px;
+      margin-bottom: 10px;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    .bp-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1.5px solid rgba(255, 255, 255, 0.16);
+      border-radius: 16px;
+      padding: 11px;
+      text-align: left;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: transform 0.1s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .bp-card:hover,
+    .bp-card:active {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      transform: scale(0.98);
+    }
+
+    .bp-card-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .bp-icon-badge {
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      background: rgba(56, 189, 248, 0.18);
+      border: 1px solid rgba(125, 211, 252, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .bp-card-title {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.2;
+    }
+
+    .bp-card-desc {
+      font-size: 11.5px;
+      color: #cbd5e1;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .bp-card-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-family: var(--font-display);
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .bp-meta-tag {
+      background: rgba(15, 23, 42, 0.65);
+      color: #7dd3fc;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .bp-meta-count {
+      color: #fde047;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 360px) {
+      .blueprint-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* =========================================================================
+       TOAST NOTIFICATION
+/* ... existing code ... -->
+    <!-- Active Blueprint Progress Pill -->
+    <div id="blueprint-pill">
+      <div class="bp-pill-info">
+        <span id="bp-name-text">Cozy Cottage</span>
+        <span id="bp-progress-text">0 / 40</span>
+      </div>
+      <div class="bp-pill-actions">
+        <button id="btn-rotate-bp" type="button" class="bp-mini-btn rotate-btn" title="Rotate Hologram 90°">↻ 90°</button>
+        <button id="btn-autobuild-bp" type="button" class="bp-mini-btn autobuild-btn" title="Auto-Build Remaining Blocks">⚡ Auto</button>
+        <button id="btn-clear-bp" type="button" class="bp-mini-btn cancel-btn" aria-label="Cancel Blueprint" title="Cancel Blueprint">✕</button>
+      </div>
+    </div>
+
+    <!-- Floating Zoom Indicator (Tap to Reset) -->
+    <button id="zoom-badge" aria-label="Reset Zoom" title="Tap to reset zoom (R)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <span id="zoom-level-text">1.0x</span>
+      <span id="zoom-reset-hint">Reset</span>
+    </button>
+
+    <!-- Left Virtual Thumbstick -->
+    <div id="joystick-zone" aria-label="Movement Joystick">
+      <div id="joystick-knob"></div>
+    </div>
+
+    <!-- Right Tactile Action Buttons -->
+    <div id="action-controls">
+      <button id="btn-fly-down" class="action-btn" aria-label="Fly Down">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+        <span>DOWN</span>
+      </button>
+      <button id="btn-jump" class="action-btn" aria-label="Jump or Swim Up">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+        <span id="jump-label">JUMP</span>
+      </button>
+      <button id="btn-break" class="action-btn" aria-label="Break Block">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 12.5-8 8a2.12 2.12 0 0 1-3-3l8-8"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/></svg>
+        <span>BREAK</span>
+      </button>
+      <button id="btn-place" class="action-btn" aria-label="Place Block">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        <span>PLACE</span>
+      </button>
+    </div>
+
+    <!-- Bottom Scrollable Block Hotbar -->
+    <div id="hotbar-wrapper">
+      <div id="selected-block-label">Grass Block</div>
+      <div id="hotbar" role="listbox" aria-label="Block Palette"></div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast">World Saved!</div>
+
+    <!-- First-Launch Welcome & Controls Modal (z-index: 9999) -->
+    <div id="welcomeModal" class="modal-backdrop open">
+      <div class="modal-card">
+        <h1 class="modal-title">Block Craft 3D</h1>
+        <p class="modal-subtitle">Build your dream voxel island! Follow glowing blueprints or craft freely in 3D.</p>
+        <div class="controls-grid">
+          <div class="control-item">
+            <strong>Move &amp; Swim</strong>
+            Left thumbstick + JUMP (or WASD + Space)
+          </div>
+          <div class="control-item">
+            <strong>Look &amp; Pinch Zoom</strong>
+            Drag to look; pinch out for 3rd-person view
+          </div>
+          <div class="control-item">
+            <strong>Place &amp; Break</strong>
+            Tap PLACE / BREAK (or E / Q keys)
+          </div>
+          <div class="control-item">
+            <strong>Fly &amp; Blueprints</strong>
+            Tap Fly to hover, or spawn hologram guides
+          </div>
+        </div>
+        <button id="btn-start-game" type="button" class="primary-cta">Start Building</button>
+      </div>
+    </div>
+
+    <!-- Blueprint Selector Modal -->
+    <div id="blueprint-modal" class="modal-backdrop">
+      <div class="modal-card">
+        <h2 class="modal-title">Blueprint Guides</h2>
+        <p class="modal-subtitle">Spawn a glowing hologram in front of you. Aim &amp; tap <strong>PLACE</strong>, rotate 90°, or tap <strong>Auto</strong>!</p>
+        <div id="bp-filter-row" class="bp-filter-row" role="tablist" aria-label="Blueprint Categories">
+          <button type="button" class="bp-filter-pill active" data-cat="all">All (10)</button>
+          <button type="button" class="bp-filter-pill" data-cat="homes">Homes &amp; Forts</button>
+          <button type="button" class="bp-filter-pill" data-cat="landmarks">Landmarks</button>
+          <button type="button" class="bp-filter-pill" data-cat="nature">Nature &amp; Props</button>
+        </div>
+        <div id="blueprint-grid" class="blueprint-grid"></div>
+        <button id="btn-close-bp" type="button" class="secondary-cta">Close</button>
+      </div>
+    </div>
+
+    <!-- Reset Confirmation Modal (No native alert/confirm) -->
+    <div id="reset-modal" class="modal-backdrop">
+      <div class="modal-card">
+        <h2 class="modal-title">Reset Island?</h2>
+        <p class="modal-subtitle">This will clear your saved builds and generate a fresh starter island.</p>
+        <button id="btn-confirm-reset" type="button" class="danger-cta">Yes, Reset World</button>
+        <button id="btn-cancel-reset" type="button" class="secondary-cta">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      /* =======================================================================
+         6. BLUEPRINT DEFINITIONS (10 ARCHITECTURAL VOXEL BLUEPRINTS)
+         ======================================================================= */
+      const BLUEPRINT_CATALOG = [
+        { id: 'cottage',    name: 'Cozy Cottage',      category: 'homes',     icon: '🏡', desc: 'Oak cabin with glass windows, pitched roof & lamp.' },
+        { id: 'tower',      name: 'Watchtower',        category: 'homes',     icon: '🗼', desc: 'Stone lookout tower with parapet & glowing beacon.' },
+        { id: 'fountain',   name: 'Garden Fountain',   category: 'nature',    icon: '⛲', desc: 'Tiered cobblestone basin with sparkling water core.' },
+        { id: 'gatehouse',  name: 'Castle Gatehouse',  category: 'homes',     icon: '🏰', desc: 'Twin stone towers, arched passage & battlements.' },
+        { id: 'windmill',   name: 'Rustic Windmill',   category: 'landmarks', icon: '🌬️', desc: 'Tapering timber tower with dramatic 4-blade sails.' },
+        { id: 'lighthouse', name: 'Coastal Lighthouse',category: 'landmarks', icon: '🏮', desc: 'Red-and-stone striped tower with glass lantern peak.' },
+        { id: 'treehouse',  name: 'Oak Treehouse',     category: 'nature',    icon: '🌳', desc: 'Elevated woodland cabin nestled in a lush oak canopy.' },
+        { id: 'pagoda',     name: 'Pagoda Pavilion',   category: 'landmarks', icon: '🏯', desc: 'Two-tiered pavilion with upturned terracotta eaves.' },
+        { id: 'bridge',     name: 'Arch Bridge',       category: 'nature',    icon: '🌉', desc: 'Arched stone & plank footbridge with corner lamps.' },
+        { id: 'pyramid',    name: 'Desert Pyramid',    category: 'landmarks', icon: '🔺', desc: 'Stepped sand monument with archway & glowing peak.' }
+      ];
+
+      const blueprintCache = {};
+
+      function buildBlueprintData(kind) {
+        if (blueprintCache[kind]) return blueprintCache[kind];
+
+        // Deduplicated map so overlapping coordinates cleanly override without inflating block counts
+        const coordMap = new Map();
+        const add = function (x, y, z, type) {
+          coordMap.set(x + ',' + y + ',' + z, { x: x, y: y, z: z, type: type });
+        };
+        const del = function (x, y, z) {
+          coordMap.delete(x + ',' + y + ',' + z);
+        };
+
+        let name = 'Blueprint';
+
+        if (kind === 'cottage') {
+          name = 'Cozy Cottage';
+          for (let x = -2; x <= 2; x++) {
+            for (let z = -2; z <= 2; z++) {
+              add(x, 0, z, 'cobblestone');
+            }
+          }
+          for (let y = 1; y <= 3; y++) {
+            for (let x = -2; x <= 2; x++) {
+              for (let z = -2; z <= 2; z++) {
+                const isEdge = Math.abs(x) === 2 || Math.abs(z) === 2;
+                if (!isEdge) continue;
+                const isCorner = Math.abs(x) === 2 && Math.abs(z) === 2;
+                if (z === 2 && x === 0 && (y === 1 || y === 2)) continue;
+                if (y === 2 && ((Math.abs(x) === 2 && z === 0) || (z === -2 && x === 0))) {
+                  add(x, y, z, 'glass');
+                } else if (isCorner) {
+                  add(x, y, z, 'log');
+                } else {
+                  add(x, y, z, 'planks');
+                }
+              }
+            }
+          }
+          add(0, 3, 0, 'glowstone');
+          add(1, 2, 3, 'glowstone');
+          for (let x = -3; x <= 3; x++) {
+            for (let z = -3; z <= 3; z++) {
+              if (Math.abs(x) === 3 || Math.abs(z) === 3) add(x, 4, z, 'terracotta');
+            }
+          }
+          for (let x = -2; x <= 2; x++) {
+            for (let z = -2; z <= 2; z++) {
+              add(x, 4, z, 'terracotta');
+            }
+          }
+          for (let x = -1; x <= 1; x++) {
+            for (let z = -1; z <= 1; z++) {
+              add(x, 5, z, 'terracotta');
+            }
+          }
+          add(0, 6, 0, 'brick');
+        } else if (kind === 'tower') {
+          name = 'Watchtower';
+          for (let y = 0; y <= 6; y++) {
+            for (let x = -1; x <= 1; x++) {
+              for (let z = -1; z <= 1; z++) {
+                const isEdge = Math.abs(x) === 1 || Math.abs(z) === 1;
+                if (y === 0 || y === 6) {
+                  add(x, y, z, y === 0 ? 'cobblestone' : 'planks');
+                } else if (isEdge) {
+                  if (z === 1 && x === 0 && (y === 1 || y === 2)) continue;
+                  if (y === 4 && (x === 0 || z === 0)) {
+                    add(x, y, z, 'glass');
+                  } else {
+                    add(x, y, z, (y % 2 === 0) ? 'stone' : 'cobblestone');
+                  }
+                }
+              }
+            }
+          }
+          [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(function (c) { add(c[0], 7, c[1], 'stone'); });
+          add(0, 7, 0, 'glowstone');
+        } else if (kind === 'fountain') {
+          name = 'Garden Fountain';
+          for (let x = -2; x <= 2; x++) {
+            for (let z = -2; z <= 2; z++) {
+              const isRim = Math.abs(x) === 2 || Math.abs(z) === 2;
+              add(x, 0, z, isRim ? 'cobblestone' : 'water');
+            }
+          }
+          add(0, 0, 0, 'stone');
+          add(0, 1, 0, 'stone');
+          add(0, 2, 0, 'stone');
+          add(0, 3, 0, 'glowstone');
+          add(1, 1, 0, 'water');
+          add(-1, 1, 0, 'water');
+          add(0, 1, 1, 'water');
+          add(0, 1, -1, 'water');
+        } else if (kind === 'gatehouse') {
+          name = 'Castle Gatehouse';
+          // Twin crenellated flanking towers: x in [-4..-2] and [2..4], z in [-2..2]
+          [-3, 3].forEach(function (cx) {
+            for (let y = 0; y <= 6; y++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                for (let dz = -2; dz <= 2; dz++) {
+                  const isWall = Math.abs(dx) === 1 || Math.abs(dz) === 2;
+                  if (y === 0 || y === 6) {
+                    add(cx + dx, y, dz, y === 0 ? 'cobblestone' : 'planks');
+                  } else if (isWall) {
+                    if ((y === 3 || y === 4) && dx === 0 && dz === 2) {
+                      add(cx + dx, y, dz, 'glass');
+                    } else {
+                      add(cx + dx, y, dz, ((y + dx + dz) & 1) === 0 ? 'stone' : 'cobblestone');
+                    }
+                  }
+                }
+              }
+            }
+            // Tower crenellations at y = 7
+            for (let dx = -1; dx <= 1; dx++) {
+              for (let dz = -2; dz <= 2; dz++) {
+                const isRim = Math.abs(dx) === 1 || Math.abs(dz) === 2;
+                if (isRim && ((dx + dz) & 1) === 0) {
+                  add(cx + dx, 7, dz, 'stone');
+                }
+              }
+            }
+          });
+          // Recessed arched central passageway (x: -1..1, z: -2..2)
+          for (let x = -1; x <= 1; x++) {
+            for (let z = -2; z <= 2; z++) {
+              add(x, 0, z, 'cobblestone');
+              add(x, 4, z, 'planks');
+            }
+          }
+          // Arch shoulders at y=3 on front & back
+          [-2, 2].forEach(function (az) {
+            add(-1, 3, az, 'stone');
+            add(1, 3, az, 'stone');
+            add(0, 4, az, 'stone');
+            add(-1, 5, az, 'planks');
+            add(0, 5, az, 'stone');
+            add(1, 5, az, 'planks');
+          });
+          // Twin front glowstone lanterns
+          add(-2, 3, 3, 'glowstone');
+          add(2, 3, 3, 'glowstone');
+        } else if (kind === 'windmill') {
+          name = 'Rustic Windmill';
+          // Stone/cobble base (y: 0..2, 5x5)
+          for (let y = 0; y <= 2; y++) {
+            for (let x = -2; x <= 2; x++) {
+              for (let z = -2; z <= 2; z++) {
+                const isEdge = Math.abs(x) === 2 || Math.abs(z) === 2;
+                if (y === 0) {
+                  add(x, y, z, 'cobblestone');
+                } else if (isEdge) {
+                  if (z === -2 && x === 0 && (y === 1 || y === 2)) continue;
+                  add(x, y, z, (y === 1) ? 'cobblestone' : 'stone');
+                }
+              }
+            }
+          }
+          // Tapering wood-plank tower (y: 3..7, 3x3)
+          for (let y = 3; y <= 7; y++) {
+            for (let x = -1; x <= 1; x++) {
+              for (let z = -1; z <= 1; z++) {
+                const isEdge = Math.abs(x) === 1 || Math.abs(z) === 1;
+                if (!isEdge) continue;
+                const isCorner = Math.abs(x) === 1 && Math.abs(z) === 1;
+                if (y === 5 && x === 0 && z === -1) {
+                  add(x, y, z, 'glass');
+                } else {
+                  add(x, y, z, isCorner ? 'log' : 'planks');
+                }
+              }
+            }
+          }
+          // Terracotta roof cap (y: 8..9)
+          for (let x = -1; x <= 1; x++) {
+            for (let z = -1; z <= 1; z++) {
+              add(x, 8, z, 'terracotta');
+            }
+          }
+          add(0, 9, 0, 'terracotta');
+          add(0, 6, 0, 'glowstone');
+          // Dramatic 4-blade sails on front face (z = 2, hub at 0,6,2)
+          add(0, 6, 2, 'log');
+          for (let i = 1; i <= 4; i++) {
+            // Up blade
+            add(0, 6 + i, 2, 'log');
+            if (i >= 2) add(1, 6 + i, 2, 'planks');
+            // Down blade
+            add(0, 6 - i, 2, 'log');
+            if (i >= 2) add(-1, 6 - i, 2, 'planks');
+            // Right blade
+            add(i, 6, 2, 'log');
+            if (i >= 2) add(i, 5, 2, 'planks');
+            // Left blade
+            add(-i, 6, 2, 'log');
+            if (i >= 2) add(-i, 7, 2, 'planks');
+          }
+        } else if (kind === 'lighthouse') {
+          name = 'Coastal Lighthouse';
+          // Rounded cobblestone/stone base (y: 0..2, 5x5 without corners)
+          for (let y = 0; y <= 2; y++) {
+            for (let x = -2; x <= 2; x++) {
+              for (let z = -2; z <= 2; z++) {
+                if (Math.abs(x) === 2 && Math.abs(z) === 2) continue;
+                const isEdge = Math.abs(x) === 2 || Math.abs(z) === 2 || (Math.abs(x) === 1 && Math.abs(z) === 1);
+                if (y === 0) {
+                  add(x, y, z, 'cobblestone');
+                } else if (isEdge) {
+                  if (z === 2 && x === 0 && (y === 1 || y === 2)) continue;
+                  add(x, y, z, y === 1 ? 'cobblestone' : 'stone');
+                }
+              }
+            }
+          }
+          // Alternating red-brick and stone striped tower (y: 3..10, 3x3)
+          for (let y = 3; y <= 10; y++) {
+            const stripe = (Math.floor((y - 3) / 2) % 2 === 0) ? 'brick' : 'stone';
+            for (let x = -1; x <= 1; x++) {
+              for (let z = -1; z <= 1; z++) {
+                if (Math.abs(x) === 1 || Math.abs(z) === 1) {
+                  add(x, y, z, stripe);
+                }
+              }
+            }
+          }
+          // Observation gallery platform at y = 11
+          for (let x = -2; x <= 2; x++) {
+            for (let z = -2; z <= 2; z++) {
+              if (Math.abs(x) === 2 && Math.abs(z) === 2) continue;
+              add(x, 11, z, 'cobblestone');
+            }
+          }
+          // Glass lantern room & bright glowstone beacon (y: 12..13)
+          for (let y = 12; y <= 13; y++) {
+            for (let x = -1; x <= 1; x++) {
+              for (let z = -1; z <= 1; z++) {
+                if (x === 0 && z === 0) {
+                  add(x, y, z, 'glowstone');
+                } else {
+                  add(x, y, z, 'glass');
+                }
+              }
+            }
+          }
+          // Terracotta dome cap & peak
+          for (let x = -1; x <= 1; x++) {
+            for (let z = -1; z <= 1; z++) {
+              add(x, 14, z, 'terracotta');
+            }
+          }
+          add(0, 15, 0, 'glowstone');
+        } else if (kind === 'treehouse') {
+          name = 'Oak Treehouse';
+          // Thick 2x2 oak log trunk (x: 0..1, z: 0..1, y: 0..4) + root buttresses
+          for (let y = 0; y <= 4; y++) {
+            add(0, y, 0, 'log');
+            add(1, y, 0, 'log');
+            add(0, y, 1, 'log');
+            add(1, y, 1, 'log');
+          }
+          add(-1, 0, 0, 'log');
+          add(2, 0, 1, 'log');
+          add(0, 0, -1, 'log');
+          add(1, 0, 2, 'log');
+          // Lush lower foliage collar at y = 4
+          for (let x = -2; x <= 3; x++) {
+            for (let z = -2; z <= 3; z++) {
+              if ((x === -2 || x === 3) && (z === -2 || z === 3)) continue;
+              if (x >= 0 && x <= 1 && z >= 0 && z <= 1) continue;
+              add(x, 4, z, 'leaves');
+            }
+          }
+          // Elevated wood-plank treehouse deck at y = 5
+          for (let x = -2; x <= 3; x++) {
+            for (let z = -2; z <= 3; z++) {
+              add(x, 5, z, 'planks');
+            }
+          }
+          // Cabin walls (y: 6..7, x: -2..2, z: -2..2) leaving porch at x=3, z=3
+          for (let y = 6; y <= 7; y++) {
+            for (let x = -2; x <= 2; x++) {
+              for (let z = -2; z <= 2; z++) {
+                const isEdge = Math.abs(x) === 2 || Math.abs(z) === 2;
+                if (!isEdge) continue;
+                const isCorner = Math.abs(x) === 2 && Math.abs(z) === 2;
+                if (z === 2 && x === 0 && (y === 6 || y === 7)) continue;
+                if (y === 7 && (x === 0 || z === 0)) {
+                  add(x, y, z, 'glass');
+                } else {
+                  add(x, y, z, isCorner ? 'log' : 'planks');
+                }
+              }
+            }
+          }
+          // Warm interior/porch glowstone lamp
+          add(0, 7, 0, 'glowstone');
+          add(2, 6, 3, 'glowstone');
+          // Leafy canopy roof (y: 8..9)
+          for (let x = -3; x <= 3; x++) {
+            for (let z = -3; z <= 3; z++) {
+              if (Math.abs(x) === 3 && Math.abs(z) === 3) continue;
+              add(x, 8, z, 'leaves');
+            }
+          }
+          for (let x = -2; x <= 2; x++) {
+            for (let z = -2; z <= 2; z++) {
+              if (Math.abs(x) === 2 && Math.abs(z) === 2) continue;
+              add(x, 9, z, 'leaves');
+            }
+          }
+        } else if (kind === 'pagoda') {
+          name = 'Pagoda Pavilion';
+          // Stone plinth (y = 0, 7x7)
+          for (let x = -3; x <= 3; x++) {
+            for (let z = -3; z <= 3; z++) {
+              add(x, 0, z, (Math.abs(x) === 3 || Math.abs(z) === 3) ? 'cobblestone' : 'stone');
+            }
+          }
+          // Tier 1: oak log pillars & glass walls (y: 1..3, 5x5)
+          for (let y = 1; y <= 3; y++) {
+            for (let x = -2; x <= 2; x++) {
+              for (let z = -2; z <= 2; z++) {
+                const isEdge = Math.abs(x) === 2 || Math.abs(z) === 2;
+                if (!isEdge) continue;
+                const isCorner = Math.abs(x) === 2 && Math.abs(z) === 2;
+                if (z === 2 && x === 0 && (y === 1 || y === 2)) continue;
+                if (isCorner) {
+                  add(x, y, z, 'log');
+                } else if (y === 1) {
+                  add(x, y, z, 'planks');
+                } else {
+                  add(x, y, z, 'glass');
+                }
+              }
+            }
+          }
+          // Sweeping Roof 1 (y = 4) + upturned corner accents at y = 5
+          for (let x = -3; x <= 3; x++) {
+            for (let z = -3; z <= 3; z++) {
+              add(x, 4, z, 'terracotta');
+            }
+          }
+          [[-3, -3], [3, -3], [-3, 3], [3, 3]].forEach(function (c) {
+            add(c[0], 5, c[1], 'terracotta');
+          });
+          // Tier 2 (y: 5..6, 3x3)
+          for (let y = 5; y <= 6; y++) {
+            for (let x = -1; x <= 1; x++) {
+              for (let z = -1; z <= 1; z++) {
+                if (x === 0 && z === 0) continue;
+                const isCorner = Math.abs(x) === 1 && Math.abs(z) === 1;
+                add(x, y, z, isCorner ? 'log' : 'glass');
+              }
+            }
+          }
+          // Sweeping Roof 2 (y = 7) + upturned corners & glowstone finial
+          for (let x = -2; x <= 2; x++) {
+            for (let z = -2; z <= 2; z++) {
+              add(x, 7, z, 'terracotta');
+            }
+          }
+          [[-2, -2], [2, -2], [-2, 2], [2, 2]].forEach(function (c) {
+            add(c[0], 8, c[1], 'terracotta');
+          });
+          for (let x = -1; x <= 1; x++) {
+            for (let z = -1; z <= 1; z++) {
+              add(x, 8, z, 'terracotta');
+            }
+          }
+          add(0, 9, 0, 'glowstone');
+        } else if (kind === 'bridge') {
+          name = 'Arch Bridge';
+          // Arched footbridge spanning z: -4..4, width x: -2..2
+          for (let z = -4; z <= 4; z++) {
+            const az = Math.abs(z);
+            const deckY = az === 4 ? 0 : (az === 3 ? 1 : 2);
+            // Wood plank deck (x: -1..1)
+            for (let x = -1; x <= 1; x++) {
+              add(x, deckY, z, az === 4 ? 'cobblestone' : 'planks');
+            }
+            // Side cobblestone arch supports & parapets (x: -2 and 2)
+            [-2, 2].forEach(function (sx) {
+              add(sx, deckY, z, 'cobblestone');
+              add(sx, deckY + 1, z, 'stone');
+              if (az === 3) add(sx, 0, z, 'cobblestone');
+              if (az === 2) add(sx, 1, z, 'cobblestone');
+            });
+          }
+          // Glowstone corner posts & center arch lamps
+          [[-2, -4], [2, -4], [-2, 4], [2, 4]].forEach(function (p) {
+            add(p[0], 2, p[1], 'glowstone');
+          });
+          add(-2, 4, 0, 'glowstone');
+          add(2, 4, 0, 'glowstone');
+        } else if (kind === 'pyramid') {
+          name = 'Desert Pyramid';
+          // Stepped sand/stone pyramid (9x9 base at y=0 up to glowstone peak at y=4)
+          for (let y = 0; y <= 3; y++) {
+            const r = 4 - y;
+            for (let x = -r; x <= r; x++) {
+              for (let z = -r; z <= r; z++) {
+                const isShell = Math.abs(x) === r || Math.abs(z) === r;
+                if (y === 0) {
+                  add(x, y, z, isShell ? 'sand' : 'stone');
+                } else if (isShell) {
+                  add(x, y, z, 'sand');
+                }
+              }
+            }
+          }
+          // Glowing capstone & inner sanctum light
+          add(0, 4, 0, 'glowstone');
+          add(0, 0, 0, 'glowstone');
+          // Recessed stone entrance archway on front face (z = 3..4)
+          for (let x = -1; x <= 1; x++) {
+            add(x, 0, 4, 'stone');
+            add(x, 1, 4, 'stone');
+            add(x, 2, 4, 'stone');
+          }
+          del(0, 0, 4);
+          del(0, 1, 4);
+          del(0, 0, 3);
+          del(0, 1, 3);
+          del(0, 1, 2);
+        }
+
+        const blocks = Array.from(coordMap.values());
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
+        blocks.forEach(function (b) {
+          if (b.x < minX) minX = b.x;
+          if (b.x > maxX) maxX = b.x;
+          if (b.y < minY) minY = b.y;
+          if (b.y > maxY) maxY = b.y;
+          if (b.z < minZ) minZ = b.z;
+          if (b.z > maxZ) maxZ = b.z;
+        });
+
+        const result = {
+          kind: kind,
+          name: name,
+          blocks: blocks,
+          width: blocks.length ? (maxX - minX + 1) : 0,
+          height: blocks.length ? (maxY - minY + 1) : 0,
+          depth: blocks.length ? (maxZ - minZ + 1) : 0,
+          radius: blocks.length ? Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minZ), Math.abs(maxZ)) : 2
+        };
+        blueprintCache[kind] = result;
+        return result;
+      }
+
+      /* =======================================================================
+         7. MAIN THREE.JS ENGINE BOOTSTRAP (With unpkg fallback if cdnjs fails)
+         ======================================================================= */
+      function bootEngine() {
+        if (typeof THREE === 'undefined') {
+          showToast('3D Engine failed to load. Please refresh.');
+          return;
+        }
+
+        // Scene & Engine State
+        let scene, camera, renderer, sunLight, ambientLight, hemiLight;
+        let worldGroup, cloudGroup, blueprintGroup, particleGroup;
+        let highlightBox, ghostHighlightBox;
+        let playerAvatar = null;
+        let skyIndex = 0;
+        let currentTarget = null;
+        let activeBlueprint = null;
+
+        const sharedBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+        const sharedParticleGeo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+        const blockMaterials = {};
+        const ghostMaterialCache = {};
+        const particles = [];
+        const voxels = new Map();
+        const meshMap = new Map();
+
+        // Smooth Zoom State:
+        // targetLevel in [-1, 0] -> 1st-person FOV detail zoom (35deg .. 70deg)
+        // targetLevel in [0, 14] -> 3rd-person pull-back overview distance
+        const zoomState = {
+          targetLevel: 0,
+          currentFov: DEFAULT_FOV,
+          targetFov: DEFAULT_FOV,
+          currentCamDist: 0,
+          targetCamDist: 0,
+          actualCamDist: 0,
+          hideTimer: null
+        };
+
+        const player = {
+          pos: new THREE.Vector3(0.5, 6.2, 9.5),
+          vel: new THREE.Vector3(0, 0, 0),
+          yaw: 0,
+          pitch: -0.14,
+          onGround: false,
+          flyMode: false,
+          wasInWater: false,
+          animTime: 0,
+          radius: 0.32,
+          height: 1.72,
+          eyeHeight: 1.52
+        };
+
+        const input = {
+          joyX: 0,
+          joyY: 0,
+          keys: {},
+          jumpHeld: false,
+          flyDownHeld: false,
+          selectedBlock: 'grass'
+        };
+
+        const rayDir = new THREE.Vector3();
+        const rayOrigin = new THREE.Vector3();
+
+        const keyOf = function (x, y, z) { return x + ',' + y + ',' + z; };
+        const inBounds = function (x, y, z) {
+          return x >= WORLD_MIN_X && x <= WORLD_MAX_X &&
+                 z >= WORLD_MIN_Z && z <= WORLD_MAX_Z &&
+                 y >= WORLD_MIN_Y && y <= WORLD_MAX_Y;
+        };
+
+        function canvasToTexture(canvas) {
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.magFilter = THREE.NearestFilter;
+          tex.minFilter = THREE.NearestFilter;
+          tex.needsUpdate = true;
+          return tex;
+        }
+
+        function buildMaterials() {
+          const makeMat = function (canvas, opts) {
+            return new THREE.MeshLambertMaterial(Object.assign({ map: canvasToTexture(canvas) }, opts || {}));
+          };
+
+          const grassSideMat = makeMat(faceCanvases.grassSide);
+          const grassTopMat = makeMat(faceCanvases.grassTop);
+          const dirtMat = makeMat(faceCanvases.dirt);
+          blockMaterials.grass = [grassSideMat, grassSideMat, grassTopMat, dirtMat, grassSideMat, grassSideMat];
+
+          const logSideMat = makeMat(faceCanvases.logSide);
+          const logTopMat = makeMat(faceCanvases.logTop);
+          blockMaterials.log = [logSideMat, logSideMat, logTopMat, logTopMat, logSideMat, logSideMat];
+
+          blockMaterials.dirt = dirtMat;
+          blockMaterials.stone = makeMat(faceCanvases.stone);
+          blockMaterials.cobblestone = makeMat(faceCanvases.cobblestone);
+          blockMaterials.planks = makeMat(faceCanvases.planks);
+          blockMaterials.leaves = makeMat(faceCanvases.leaves);
+          blockMaterials.brick = makeMat(faceCanvases.brick);
+          blockMaterials.glass = makeMat(faceCanvases.glass, { transparent: true, opacity: 0.85, depthWrite: false });
+          blockMaterials.sand = makeMat(faceCanvases.sand);
+          blockMaterials.terracotta = makeMat(faceCanvases.terracotta);
+          blockMaterials.glowstone = makeMat(faceCanvases.glowstone, {
+            emissive: new THREE.Color(0xfbbf24),
+            emissiveIntensity: 0.45
+          });
+          blockMaterials.water = makeMat(faceCanvases.water, { transparent: true, opacity: 0.72, depthWrite: false });
+        }
+
+        function isOpaque(x, y, z) {
+          const id = voxels.get(keyOf(x, y, z));
+          return Boolean(id && BLOCK_BY_ID[id] && !BLOCK_BY_ID[id].transparent);
+        }
+
+        function isSolid(x, y, z) {
+          const id = voxels.get(keyOf(x, y, z));
+          return Boolean(id && BLOCK_BY_ID[id] && BLOCK_BY_ID[id].solid);
+        }
+
+        function shouldRenderBlock(x, y, z) {
+          const id = voxels.get(keyOf(x, y, z));
+          if (!id || !BLOCK_BY_ID[id]) return false;
+          if (BLOCK_BY_ID[id].transparent) return true;
+          return (
+            !isOpaque(x + 1, y, z) ||
+            !isOpaque(x - 1, y, z) ||
+            !isOpaque(x, y + 1, z) ||
+            !isOpaque(x, y - 1, z) ||
+            !isOpaque(x, y, z + 1) ||
+            !isOpaque(x, y, z - 1)
+          );
+        }
+
+        function syncBlockMesh(x, y, z) {
+          const k = keyOf(x, y, z);
+          const id = voxels.get(k);
+          const existing = meshMap.get(k);
+
+          if (!id || !shouldRenderBlock(x, y, z)) {
+            if (existing) {
+              worldGroup.remove(existing);
+              meshMap.delete(k);
+            }
+            return;
+          }
+
+          if (existing) {
+            if (existing.userData.blockId !== id) {
+              existing.material = blockMaterials[id];
+              existing.userData.blockId = id;
+            }
+            return;
+          }
+
+          const mesh = new THREE.Mesh(sharedBoxGeo, blockMaterials[id]);
+          mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+          mesh.userData.blockId = id;
+          worldGroup.add(mesh);
+          meshMap.set(k, mesh);
+        }
+
+        function setVoxel(x, y, z, id, updateNeighbors) {
+          if (!inBounds(x, y, z)) return false;
+          const k = keyOf(x, y, z);
+          if (id) {
+            voxels.set(k, id);
+          } else {
+            voxels.delete(k);
+          }
+
+          if (updateNeighbors !== false) {
+            syncBlockMesh(x, y, z);
+            syncBlockMesh(x + 1, y, z);
+            syncBlockMesh(x - 1, y, z);
+            syncBlockMesh(x, y + 1, z);
+            syncBlockMesh(x, y - 1, z);
+            syncBlockMesh(x, y, z + 1);
+            syncBlockMesh(x, y, z - 1);
+          }
+
+          updateBlueprintAt(x, y, z, id);
+          return true;
+        }
+
+        function rebuildAllMeshes() {
+          while (worldGroup.children.length > 0) {
+            worldGroup.remove(worldGroup.children[0]);
+          }
+          meshMap.clear();
+          voxels.forEach(function (_val, k) {
+            const parts = k.split(',');
+            syncBlockMesh(Number(parts[0]), Number(parts[1]), Number(parts[2]));
+          });
+        }
+
+        function resetPlayerPosition() {
+          player.pos.set(0.5, 6.2, 9.5);
+          player.vel.set(0, 0, 0);
+          player.yaw = 0;
+          player.pitch = -0.14;
+        }
+
+        /* -------------------------------------------------------------------
+           BLUEPRINT HOLOGRAM SYSTEM (WITH ROTATE 90° & AUTO-BUILD)
+           ------------------------------------------------------------------- */
+        function getGhostMaterial(blockId) {
+          if (!ghostMaterialCache[blockId]) {
+            const c = (blockId === 'grass') ? faceCanvases.grassSide :
+                      (blockId === 'log') ? faceCanvases.logSide :
+                      (faceCanvases[blockId] || faceCanvases.stone);
+            ghostMaterialCache[blockId] = new THREE.MeshBasicMaterial({
+              map: canvasToTexture(c),
+              color: 0x7dd3fc,
+              transparent: true,
+              opacity: 0.42,
+              depthWrite: false
+            });
+          }
+          return ghostMaterialCache[blockId];
+        }
+
+        function updateAutoBuildButton() {
+          const btn = document.getElementById('btn-autobuild-bp');
+          if (!btn) return;
+          const running = Boolean(activeBlueprint && activeBlueprint.autoBuilding);
+          btn.classList.toggle('running', running);
+          btn.textContent = running ? '⏸ Pause' : '⚡ Auto';
+        }
+
+        function clearBlueprint() {
+          if (blueprintGroup) {
+            while (blueprintGroup.children.length > 0) {
+              blueprintGroup.remove(blueprintGroup.children[0]);
+            }
+          }
+          activeBlueprint = null;
+          updateAutoBuildButton();
+          const pill = document.getElementById('blueprint-pill');
+          if (pill) pill.classList.remove('visible');
+        }
+
+        function updateBlueprintHUD() {
+          const pill = document.getElementById('blueprint-pill');
+          if (!pill) return;
+          if (!activeBlueprint) {
+            pill.classList.remove('visible');
+            return;
+          }
+          document.getElementById('bp-name-text').textContent = activeBlueprint.name;
+          document.getElementById('bp-progress-text').textContent = activeBlueprint.filled + ' / ' + activeBlueprint.total;
+          updateAutoBuildButton();
+          pill.classList.add('visible');
+        }
+
+        function rebuildBlueprintMeshes() {
+          if (!activeBlueprint) return;
+          while (blueprintGroup.children.length > 0) {
+            blueprintGroup.remove(blueprintGroup.children[0]);
+          }
+
+          const map = new Map();
+          const queue = [];
+          let filledCount = 0;
+          const rot = activeBlueprint.rotation;
+
+          activeBlueprint.rawBlocks.forEach(function (b) {
+            let rx = b.x;
+            let rz = b.z;
+            if (rot === 1) { rx = -b.z; rz = b.x; }
+            else if (rot === 2) { rx = -b.x; rz = -b.z; }
+            else if (rot === 3) { rx = b.z; rz = -b.x; }
+
+            const wx = activeBlueprint.originX + rx;
+            const wy = activeBlueprint.originY + b.y;
+            const wz = activeBlueprint.originZ + rz;
+            if (!inBounds(wx, wy, wz)) return;
+
+            const k = keyOf(wx, wy, wz);
+            const alreadyFilled = voxels.get(k) === b.type;
+            if (alreadyFilled) filledCount++;
+
+            const mesh = new THREE.Mesh(sharedBoxGeo, getGhostMaterial(b.type));
+            mesh.position.set(wx + 0.5, wy + 0.5, wz + 0.5);
+            mesh.scale.set(0.96, 0.96, 0.96);
+            mesh.visible = !alreadyFilled;
+            blueprintGroup.add(mesh);
+
+            const entry = { x: wx, y: wy, z: wz, type: b.type, mesh: mesh, filled: alreadyFilled };
+            map.set(k, entry);
+            queue.push(entry);
+          });
+
+          // Build layer-by-layer from bottom to top during Auto-Build
+          queue.sort(function (a, b) {
+            if (a.y !== b.y) return a.y - b.y;
+            if (a.x !== b.x) return a.x - b.x;
+            return a.z - b.z;
+          });
+
+          activeBlueprint.map = map;
+          activeBlueprint.queue = queue;
+          activeBlueprint.queueIdx = 0;
+          activeBlueprint.total = map.size;
+          activeBlueprint.filled = filledCount;
+          updateBlueprintHUD();
+        }
+
+        function spawnBlueprint(kind) {
+          clearBlueprint();
+          const bp = buildBlueprintData(kind);
+
+          const dirX = -Math.sin(player.yaw);
+          const dirZ = -Math.cos(player.yaw);
+          const margin = Math.min(5, bp.radius + 1);
+          const forwardDist = Math.max(5.5, bp.radius + 3.0);
+          const originX = Math.max(WORLD_MIN_X + margin, Math.min(WORLD_MAX_X - margin, Math.round(player.pos.x + dirX * forwardDist)));
+          const originZ = Math.max(WORLD_MIN_Z + margin, Math.min(WORLD_MAX_Z - margin, Math.round(player.pos.z + dirZ * forwardDist)));
+
+          let originY = 5;
+          for (let y = WORLD_MAX_Y; y >= 0; y--) {
+            if (isSolid(originX, y, originZ)) {
+              originY = y + 1;
+              break;
+            }
+          }
+          // Clamp originY so tall landmarks (e.g. Lighthouse) fit cleanly under WORLD_MAX_Y
+          if (originY + bp.height - 1 > WORLD_MAX_Y) {
+            originY = Math.max(1, WORLD_MAX_Y - bp.height + 1);
+          }
+
+          activeBlueprint = {
+            kind: kind,
+            name: bp.name,
+            rawBlocks: bp.blocks,
+            originX: originX,
+            originY: originY,
+            originZ: originZ,
+            height: bp.height,
+            rotation: 0,
+            autoBuilding: false,
+            autoBuildAccum: 0,
+            autoSoundTick: 0,
+            map: new Map(),
+            queue: [],
+            queueIdx: 0,
+            total: 0,
+            filled: 0
+          };
+
+          rebuildBlueprintMeshes();
+          SoundFX.playChime(false);
+          showToast(bp.name + ' spawned! Tap PLACE, ↻ 90°, or ⚡ Auto.');
+        }
+
+        function rotateActiveBlueprint() {
+          if (!activeBlueprint) return;
+          SoundFX.init();
+          activeBlueprint.autoBuilding = false;
+          activeBlueprint.rotation = (activeBlueprint.rotation + 1) % 4;
+          rebuildBlueprintMeshes();
+          SoundFX.playChime(false);
+          showToast('Rotated ' + activeBlueprint.name + ' 90°');
+        }
+
+        function toggleAutoBuild() {
+          if (!activeBlueprint) return;
+          SoundFX.init();
+          activeBlueprint.autoBuilding = !activeBlueprint.autoBuilding;
+          activeBlueprint.autoBuildAccum = 0;
+          updateAutoBuildButton();
+          showToast(activeBlueprint.autoBuilding ? 'Auto-Building ' + activeBlueprint.name + '...' : 'Auto-Build Paused');
+        }
+
+        function stepAutoBuild(dt) {
+          if (!activeBlueprint || !activeBlueprint.autoBuilding) return;
+          activeBlueprint.autoBuildAccum += dt;
+          const interval = 0.042;
+
+          while (activeBlueprint && activeBlueprint.autoBuilding && activeBlueprint.autoBuildAccum >= interval) {
+            activeBlueprint.autoBuildAccum -= interval;
+
+            let nextEntry = null;
+            while (activeBlueprint.queueIdx < activeBlueprint.queue.length) {
+              const candidate = activeBlueprint.queue[activeBlueprint.queueIdx++];
+              if (!candidate.filled) {
+                nextEntry = candidate;
+                break;
+              }
+            }
+
+            if (!nextEntry) {
+              // Scan once more in case any earlier blocks were broken during build
+              for (let i = 0; i < activeBlueprint.queue.length; i++) {
+                if (!activeBlueprint.queue[i].filled) {
+                  activeBlueprint.queueIdx = i + 1;
+                  nextEntry = activeBlueprint.queue[i];
+                  break;
+                }
+              }
+            }
+
+            if (!nextEntry) {
+              activeBlueprint.autoBuilding = false;
+              updateAutoBuildButton();
+              break;
+            }
+
+            // Gently lift player if a solid auto-built block overlaps them
+            if (BLOCK_BY_ID[nextEntry.type].solid && doesBlockOverlapPlayer(nextEntry.x, nextEntry.y, nextEntry.z)) {
+              player.pos.y = nextEntry.y + 1.02;
+              player.vel.y = 0;
+            }
+
+            setVoxel(nextEntry.x, nextEntry.y, nextEntry.z, nextEntry.type);
+            spawnBlockParticles(nextEntry.x, nextEntry.y, nextEntry.z, nextEntry.type, 3);
+            if (activeBlueprint) {
+              activeBlueprint.autoSoundTick++;
+              if (activeBlueprint.autoSoundTick % 2 === 1) {
+                SoundFX.playPlace();
+              }
+            }
+          }
+        }
+
+        function celebrateBlueprintCompletion(bp) {
+          SoundFX.playChime(true);
+          const confettiBlocks = ['glowstone', 'terracotta', 'leaves', 'water'];
+          for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2;
+            const px = bp.originX + Math.round(Math.cos(angle) * 2);
+            const py = Math.min(WORLD_MAX_Y, bp.originY + Math.max(2, Math.floor(bp.height * 0.75)));
+            const pz = bp.originZ + Math.round(Math.sin(angle) * 2);
+            spawnBlockParticles(px, py, pz, confettiBlocks[i % confettiBlocks.length], 6);
+          }
+          showToast(bp.name + ' Complete! Awesome build!');
+        }
+
+        function updateBlueprintAt(x, y, z, placedId) {
+          if (!activeBlueprint) return;
+          const k = keyOf(x, y, z);
+          const entry = activeBlueprint.map.get(k);
+          if (!entry) return;
+
+          const nowFilled = (placedId === entry.type);
+          if (nowFilled !== entry.filled) {
+            entry.filled = nowFilled;
+            entry.mesh.visible = !nowFilled;
+            activeBlueprint.filled += nowFilled ? 1 : -1;
+            updateBlueprintHUD();
+
+            if (activeBlueprint.filled >= activeBlueprint.total && activeBlueprint.total > 0) {
+              const completedBp = activeBlueprint;
+              completedBp.autoBuilding = false;
+              updateAutoBuildButton();
+              celebrateBlueprintCompletion(completedBp);
+              setTimeout(function () {
+                if (activeBlueprint === completedBp) clearBlueprint();
+              }, 1800);
+            }
+          }
+        }
+
+        /* -------------------------------------------------------------------
+           FAST 3D DDA VOXEL RAYCASTER (Dynamic reach for 3rd-person view)
+           ------------------------------------------------------------------- */
+        function castVoxelRay() {
+          camera.getWorldPosition(rayOrigin);
+          camera.getWorldDirection(rayDir);
+
+          let x = Math.floor(rayOrigin.x);
+          let y = Math.floor(rayOrigin.y);
+          let z = Math.floor(rayOrigin.z);
+
+          const stepX = rayDir.x >= 0 ? 1 : -1;
+          const stepY = rayDir.y >= 0 ? 1 : -1;
+          const stepZ = rayDir.z >= 0 ? 1 : -1;
+
+          const tDeltaX = rayDir.x === 0 ? Infinity : Math.abs(1 / rayDir.x);
+          const tDeltaY = rayDir.y === 0 ? Infinity : Math.abs(1 / rayDir.y);
+          const tDeltaZ = rayDir.z === 0 ? Infinity : Math.abs(1 / rayDir.z);
+
+          let tMaxX = rayDir.x === 0 ? Infinity : ((stepX > 0 ? (x + 1 - rayOrigin.x) : (rayOrigin.x - x)) * tDeltaX);
+          let tMaxY = rayDir.y === 0 ? Infinity : ((stepY > 0 ? (y + 1 - rayOrigin.y) : (rayOrigin.y - y)) * tDeltaY);
+          let tMaxZ = rayDir.z === 0 ? Infinity : ((stepZ > 0 ? (z + 1 - rayOrigin.z) : (rayOrigin.z - z)) * tDeltaZ);
+
+          let dist = 0;
+          let nx = 0, ny = 0, nz = 0;
+          let solidHit = null;
+          let ghostHit = null;
+
+          const dynamicReach = REACH_DIST + zoomState.actualCamDist;
+          const maxSteps = Math.ceil((dynamicReach + 4) * 3);
+
+          for (let i = 0; i < maxSteps; i++) {
+            if (dist > dynamicReach) break;
+
+            if (i > 0 && inBounds(x, y, z)) {
+              const k = keyOf(x, y, z);
+              if (!ghostHit && activeBlueprint) {
+                const bpEntry = activeBlueprint.map.get(k);
+                if (bpEntry && !bpEntry.filled) {
+                  ghostHit = { x: x, y: y, z: z, type: bpEntry.type };
+                }
+              }
+              const vid = voxels.get(k);
+              if (vid) {
+                solidHit = { x: x, y: y, z: z, nx: nx, ny: ny, nz: nz, id: vid };
+                break;
+              }
+            }
+
+            if (tMaxX < tMaxY) {
+              if (tMaxX < tMaxZ) {
+                dist = tMaxX; tMaxX += tDeltaX; x += stepX; nx = -stepX; ny = 0; nz = 0;
+              } else {
+                dist = tMaxZ; tMaxZ += tDeltaZ; z += stepZ; nx = 0; ny = 0; nz = -stepZ;
+              }
+            } else {
+              if (tMaxY < tMaxZ) {
+                dist = tMaxY; tMaxY += tDeltaY; y += stepY; nx = 0; ny = -stepY; nz = 0;
+              } else {
+                dist = tMaxZ; tMaxZ += tDeltaZ; z += stepZ; nx = 0; ny = 0; nz = -stepZ;
+              }
+            }
+          }
+
+          return { solidHit: solidHit, ghostHit: ghostHit };
+        }
+
+        /* -------------------------------------------------------------------
+           PLACE, BREAK & BURST PARTICLES
+           ------------------------------------------------------------------- */
+        function doesBlockOverlapPlayer(bx, by, bz) {
+          const minX = player.pos.x - player.radius;
+          const maxX = player.pos.x + player.radius;
+          const minY = player.pos.y;
+          const maxY = player.pos.y + player.height;
+          const minZ = player.pos.z - player.radius;
+          const maxZ = player.pos.z + player.radius;
+
+          return (
+            bx + 1 > minX && bx < maxX &&
+            by + 1 > minY && by < maxY &&
+            bz + 1 > minZ && bz < maxZ
+          );
+        }
+
+        function spawnBlockParticles(bx, by, bz, blockId, count) {
+          if (!particleGroup) return;
+          const rawMat = blockMaterials[blockId];
+          const mat = Array.isArray(rawMat) ? rawMat[0] : rawMat;
+          if (!mat) return;
+
+          const total = count || 8;
+          for (let i = 0; i < total; i++) {
+            const mesh = new THREE.Mesh(sharedParticleGeo, mat);
+            mesh.position.set(
+              bx + 0.25 + Math.random() * 0.5,
+              by + 0.25 + Math.random() * 0.5,
+              bz + 0.25 + Math.random() * 0.5
+            );
+            particleGroup.add(mesh);
+            particles.push({
+              mesh: mesh,
+              vx: (Math.random() - 0.5) * 3.6,
+              vy: 1.6 + Math.random() * 2.6,
+              vz: (Math.random() - 0.5) * 3.6,
+              life: 0.34 + Math.random() * 0.16,
+              maxLife: 0.5
+            });
+          }
+        }
+
+        function updateParticles(dt) {
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.life -= dt;
+            if (p.life <= 0) {
+              particleGroup.remove(p.mesh);
+              particles.splice(i, 1);
+              continue;
+            }
+            p.vy -= 14.0 * dt;
+            p.mesh.position.x += p.vx * dt;
+            p.mesh.position.y += p.vy * dt;
+            p.mesh.position.z += p.vz * dt;
+            p.mesh.rotation.x += 5 * dt;
+            p.mesh.rotation.y += 4 * dt;
+            const s = Math.max(0.05, p.life / p.maxLife);
+            p.mesh.scale.set(s, s, s);
+          }
+        }
+
+        function handlePlaceBlock() {
+          SoundFX.init();
+          if (!currentTarget) return;
+
+          if (currentTarget.ghostHit) {
+            const g = currentTarget.ghostHit;
+            if (BLOCK_BY_ID[g.type].solid && doesBlockOverlapPlayer(g.x, g.y, g.z)) {
+              showToast('Step back slightly to place!');
+              return;
+            }
+            if (setVoxel(g.x, g.y, g.z, g.type)) {
+              SoundFX.playPlace();
+              spawnBlockParticles(g.x, g.y, g.z, g.type, 5);
+            }
+            return;
+          }
+
+          if (currentTarget.solidHit) {
+            const h = currentTarget.solidHit;
+            const px = h.x + h.nx;
+            const py = h.y + h.ny;
+            const pz = h.z + h.nz;
+            if (!inBounds(px, py, pz)) {
+              showToast('Edge of build plot reached');
+              return;
+            }
+            const blockDef = BLOCK_BY_ID[input.selectedBlock];
+            if (blockDef.solid && doesBlockOverlapPlayer(px, py, pz)) {
+              return;
+            }
+            if (setVoxel(px, py, pz, input.selectedBlock)) {
+              SoundFX.playPlace();
+              spawnBlockParticles(px, py, pz, input.selectedBlock, 5);
+            }
+          }
+        }
+
+        function handleBreakBlock() {
+          SoundFX.init();
+          if (!currentTarget || !currentTarget.solidHit) return;
+          const h = currentTarget.solidHit;
+          if (h.y === WORLD_MIN_Y) {
+            showToast('Cannot break bedrock floor!');
+            return;
+          }
+          const brokenId = h.id;
+          setVoxel(h.x, h.y, h.z, null);
+          SoundFX.playBreak();
+          spawnBlockParticles(h.x, h.y, h.z, brokenId, 9);
+        }
+
+        /* -------------------------------------------------------------------
+           ZOOM & CAMERA PRESET HELPERS
+           ------------------------------------------------------------------- */
+        function updateZoomBadge() {
+          const badge = document.getElementById('zoom-badge');
+          const label = document.getElementById('zoom-level-text');
+          const resetHint = document.getElementById('zoom-reset-hint');
+          const viewBtn = document.getElementById('btn-view');
+          const viewLabel = document.getElementById('view-label');
+
+          if (zoomState.targetCamDist > 0.1) {
+            label.textContent = 'Wide ' + zoomState.targetCamDist.toFixed(1) + 'm';
+            resetHint.style.display = 'inline';
+            viewBtn.classList.add('active');
+            viewLabel.textContent = zoomState.targetCamDist >= 9.0 ? 'Wide' : '3rd';
+          } else {
+            const mult = DEFAULT_FOV / zoomState.targetFov;
+            label.textContent = mult.toFixed(1) + 'x';
+            resetHint.style.display = Math.abs(zoomState.targetFov - DEFAULT_FOV) > 1 ? 'inline' : 'none';
+            viewBtn.classList.remove('active');
+            viewLabel.textContent = '1st';
+          }
+
+          badge.classList.add('visible');
+          clearTimeout(zoomState.hideTimer);
+          zoomState.hideTimer = setTimeout(function () {
+            badge.classList.remove('visible');
+          }, 1500);
+        }
+
+        function setZoomLevel(level) {
+          const clamped = Math.max(-1, Math.min(MAX_CAM_DIST, level));
+          zoomState.targetLevel = clamped;
+          if (clamped < 0) {
+            zoomState.targetFov = DEFAULT_FOV + clamped * (DEFAULT_FOV - MIN_FOV);
+            zoomState.targetCamDist = 0;
+          } else {
+            zoomState.targetFov = DEFAULT_FOV;
+            zoomState.targetCamDist = clamped;
+          }
+          updateZoomBadge();
+        }
+
+        function adjustZoomByFactor(logDelta) {
+          let lvl = zoomState.targetLevel;
+          if (lvl < 0 || (lvl === 0 && logDelta < 0)) {
+            lvl += logDelta * 1.45;
+            if (lvl > 0) lvl *= 5.0;
+          } else {
+            const speed = 4.5 + lvl * 0.75;
+            lvl += logDelta * speed;
+            if (lvl < 0) lvl /= 5.0;
+          }
+          setZoomLevel(lvl);
+        }
+
+        function cycleCameraView() {
+          const dist = zoomState.targetCamDist;
+          let nextPreset;
+          if (dist < 2.0) {
+            nextPreset = VIEW_PRESETS[1];
+          } else if (dist < 9.0) {
+            nextPreset = VIEW_PRESETS[2];
+          } else {
+            nextPreset = VIEW_PRESETS[0];
+          }
+          setZoomLevel(nextPreset.level);
+          showToast('Camera: ' + nextPreset.label);
+        }
+
+        function resetZoom() {
+          setZoomLevel(0);
+        }
+
+        /* -------------------------------------------------------------------
+           PLAYER PHYSICS, SWIMMING & BANK ESCAPE ASSISTANCE
+           ------------------------------------------------------------------- */
+        function checkPlayerCollision(px, py, pz) {
+          const minX = Math.floor(px - player.radius);
+          const maxX = Math.floor(px + player.radius);
+          const minY = Math.floor(py);
+          const maxY = Math.floor(py + player.height - 0.01);
+          const minZ = Math.floor(pz - player.radius);
+          const maxZ = Math.floor(pz + player.radius);
+
+          for (let x = minX; x <= maxX; x++) {
+            for (let y = minY; y <= maxY; y++) {
+              for (let z = minZ; z <= maxZ; z++) {
+                if (isSolid(x, y, z)) return true;
+              }
+            }
+          }
+          return false;
+        }
+
+        function updatePlayer(dt) {
+          let moveForward = -input.joyY;
+          let moveRight = input.joyX;
+
+          if (input.keys['KeyW'] || input.keys['ArrowUp']) moveForward += 1;
+          if (input.keys['KeyS'] || input.keys['ArrowDown']) moveForward -= 1;
+          if (input.keys['KeyD'] || input.keys['ArrowRight']) moveRight += 1;
+          if (input.keys['KeyA'] || input.keys['ArrowLeft']) moveRight -= 1;
+
+          const len = Math.hypot(moveForward, moveRight);
+          if (len > 1) {
+            moveForward /= len;
+            moveRight /= len;
+          }
+
+          const speed = player.flyMode ? 7.8 : 5.4;
+          const sinY = Math.sin(player.yaw);
+          const cosY = Math.cos(player.yaw);
+
+          const vx = (-sinY * moveForward + cosY * moveRight) * speed;
+          const vz = (-cosY * moveForward - sinY * moveRight) * speed;
+          const horizSpeed = Math.hypot(vx, vz);
+
+          // Water detection (feet & waist)
+          const pxCell = Math.floor(player.pos.x);
+          const pzCell = Math.floor(player.pos.z);
+          const feetInWater = voxels.get(keyOf(pxCell, Math.floor(player.pos.y + 0.15), pzCell)) === 'water';
+          const waistInWater = voxels.get(keyOf(pxCell, Math.floor(player.pos.y + 0.85), pzCell)) === 'water';
+          const inWater = feetInWater || waistInWater;
+
+          if (inWater && !player.wasInWater) {
+            SoundFX.playSplash();
+          }
+          player.wasInWater = inWater;
+
+          // Vertical physics
+          if (player.flyMode) {
+            let vy = 0;
+            if (input.jumpHeld || input.keys['Space']) vy += 6.2;
+            if (input.flyDownHeld || input.keys['ShiftLeft'] || input.keys['ShiftRight']) vy -= 6.2;
+            player.vel.y = vy;
+            player.onGround = false;
+          } else if (inWater) {
+            // Buoyancy keeps player floating comfortably near the surface
+            const buoyancy = waistInWater ? 14.5 : -5.0;
+            player.vel.y += buoyancy * dt;
+            player.vel.y *= Math.max(0, 1 - 4.0 * dt);
+            if (player.vel.y < -2.2) player.vel.y = -2.2;
+
+            if (input.jumpHeld || input.keys['Space']) {
+              if (!waistInWater) {
+                // Crisp surface hop to clear 1-block pond rims effortlessly
+                player.vel.y = 8.6;
+                SoundFX.playJump();
+              } else {
+                // Strong upward swim
+                player.vel.y = Math.max(player.vel.y, 6.0);
+              }
+            }
+          } else {
+            player.vel.y += -22.0 * dt;
+            if ((input.jumpHeld || input.keys['Space']) && player.onGround) {
+              player.vel.y = 8.4;
+              player.onGround = false;
+              SoundFX.playJump();
+            }
+          }
+
+          // Horizontal move + automatic 1-block bank step-up assistance in water
+          const moveScale = (inWater && !player.flyMode) ? 0.85 : 1.0;
+          const stepX = vx * moveScale * dt;
+          const stepZ = vz * moveScale * dt;
+          let hitBankEdge = false;
+
+          const nextX = Math.max(WORLD_MIN_X + 0.4, Math.min(WORLD_MAX_X + 0.6, player.pos.x + stepX));
+          if (!checkPlayerCollision(nextX, player.pos.y, player.pos.z)) {
+            player.pos.x = nextX;
+          } else if (inWater && !player.flyMode && Math.abs(stepX) > 0.001) {
+            if (!checkPlayerCollision(nextX, player.pos.y + 1.2, player.pos.z)) {
+              hitBankEdge = true;
+            }
+          }
+
+          const nextZ = Math.max(WORLD_MIN_Z + 0.4, Math.min(WORLD_MAX_Z + 0.6, player.pos.z + stepZ));
+          if (!checkPlayerCollision(player.pos.x, player.pos.y, nextZ)) {
+            player.pos.z = nextZ;
+          } else if (inWater && !player.flyMode && Math.abs(stepZ) > 0.001) {
+            if (!checkPlayerCollision(player.pos.x, player.pos.y + 1.2, nextZ)) {
+              hitBankEdge = true;
+            }
+          }
+
+          if (hitBankEdge) {
+            player.vel.y = Math.max(player.vel.y, 8.0);
+            if (!checkPlayerCollision(player.pos.x, player.pos.y + 0.22, player.pos.z)) {
+              player.pos.y += Math.min(0.2, 6.2 * dt);
+            }
+          }
+
+          // Vertical resolution
+          const nextY = player.pos.y + player.vel.y * dt;
+          if (!checkPlayerCollision(player.pos.x, nextY, player.pos.z)) {
+            player.pos.y = nextY;
+            player.onGround = false;
+          } else {
+            if (player.vel.y < 0) {
+              player.pos.y = Math.floor(nextY) + 1.001;
+              player.onGround = true;
+            }
+            player.vel.y = 0;
+          }
+
+          if (player.pos.y > WORLD_MAX_Y + 4) {
+            player.pos.y = WORLD_MAX_Y + 4;
+            player.vel.y = 0;
+          }
+          if (player.pos.y < -5) {
+            resetPlayerPosition();
+          }
+
+          // Sync camera (1st-person or collision-checked 3rd-person pull-back)
+          const eyeX = player.pos.x;
+          const eyeY = player.pos.y + player.eyeHeight;
+          const eyeZ = player.pos.z;
+
+          camera.rotation.order = 'YXZ';
+          camera.rotation.y = player.yaw;
+          camera.rotation.x = player.pitch;
+
+          if (zoomState.currentCamDist > 0.02) {
+            const cosP = Math.cos(player.pitch);
+            const fwdX = -Math.sin(player.yaw) * cosP;
+            const fwdY = Math.sin(player.pitch);
+            const fwdZ = -Math.cos(player.yaw) * cosP;
+
+            const desiredDist = zoomState.currentCamDist;
+            const liftY = Math.min(2.2, desiredDist * 0.16);
+            const offX = -fwdX * desiredDist;
+            const offY = -fwdY * desiredDist + liftY;
+            const offZ = -fwdZ * desiredDist;
+            const totalLen = Math.hypot(offX, offY, offZ);
+
+            let safeDist = totalLen;
+            const steps = Math.max(1, Math.ceil(totalLen / 0.25));
+            for (let i = 1; i <= steps; i++) {
+              const t = i / steps;
+              const cx = eyeX + offX * t;
+              const cy = eyeY + offY * t;
+              const cz = eyeZ + offZ * t;
+              if (cy < WORLD_MIN_Y + 0.35 || isSolid(Math.floor(cx), Math.floor(cy), Math.floor(cz))) {
+                safeDist = Math.max(0, totalLen * t - 0.35);
+                break;
+              }
+            }
+
+            const ratio = totalLen > 0.001 ? safeDist / totalLen : 0;
+            camera.position.set(eyeX + offX * ratio, eyeY + offY * ratio, eyeZ + offZ * ratio);
+            zoomState.actualCamDist = safeDist;
+          } else {
+            camera.position.set(eyeX, eyeY, eyeZ);
+            zoomState.actualCamDist = 0;
+          }
+
+          updatePlayerAvatar(dt, horizSpeed, inWater);
+
+          const camBlock = voxels.get(keyOf(
+            Math.floor(camera.position.x),
+            Math.floor(camera.position.y),
+            Math.floor(camera.position.z)
+          ));
+          document.getElementById('underwater-overlay').classList.toggle('visible', camBlock === 'water');
+        }
+
+        /* -------------------------------------------------------------------
+           SKY, SAVE & LOAD
+           ------------------------------------------------------------------- */
+        function applySkyMode(index) {
+          const mode = SKY_MODES[index];
+          scene.background = new THREE.Color(mode.sky);
+          scene.fog = new THREE.Fog(mode.fog, 24, 66);
+          sunLight.color.setHex(mode.sunColor);
+          sunLight.intensity = mode.sunIntensity;
+          sunLight.position.set(mode.sunPos[0], mode.sunPos[1], mode.sunPos[2]);
+          ambientLight.intensity = mode.ambIntensity;
+          hemiLight.color.setHex(mode.hemiSky);
+          hemiLight.groundColor.setHex(mode.hemiGround);
+
+          document.getElementById('sky-label').textContent = mode.name;
+          const btnSky = document.getElementById('btn-sky');
+          btnSky.classList.toggle('amber-active', mode.name === 'Sunset');
+          btnSky.classList.toggle('active', mode.name === 'Night');
+        }
+
+        function saveWorld() {
+          try {
+            const data = {
+              voxels: Array.from(voxels.entries()),
+              pos: [player.pos.x, player.pos.y, player.pos.z],
+              yaw: player.yaw,
+              pitch: player.pitch,
+              skyIndex: skyIndex
+            };
+            localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+            SoundFX.playChime(false);
+            showToast('World saved to device!');
+          } catch (err) {
+            showToast('Could not save (storage unavailable)');
+          }
+        }
+
+        function loadWorldIfSaved() {
+          try {
+            const raw = localStorage.getItem(SAVE_KEY);
+            if (!raw) return false;
+            const data = JSON.parse(raw);
+            if (!data || !Array.isArray(data.voxels) || data.voxels.length === 0) return false;
+
+            voxels.clear();
+            data.voxels.forEach(function (pair) {
+              if (BLOCK_BY_ID[pair[1]]) voxels.set(pair[0], pair[1]);
+            });
+            rebuildAllMeshes();
+
+            if (Array.isArray(data.pos) && data.pos.length === 3) {
+              player.pos.set(data.pos[0], data.pos[1], data.pos[2]);
+            }
+            if (typeof data.yaw === 'number') player.yaw = data.yaw;
+            if (typeof data.pitch === 'number') player.pitch = data.pitch;
+            if (typeof data.skyIndex === 'number') {
+              skyIndex = data.skyIndex % SKY_MODES.length;
+              applySkyMode(skyIndex);
+            }
+            return true;
+          } catch (err) {
+            return false;
+          }
+        }
+
+        /* -------------------------------------------------------------------
+           HOTBAR, TOUCH & DESKTOP CONTROLS
+           ------------------------------------------------------------------- */
+        function selectBlock(blockId) {
+          if (!BLOCK_BY_ID[blockId]) return;
+          input.selectedBlock = blockId;
+          document.querySelectorAll('.hotbar-slot').forEach(function (el) {
+            el.classList.toggle('selected', el.dataset.blockId === blockId);
+          });
+          document.getElementById('selected-block-label').textContent = BLOCK_BY_ID[blockId].name;
+        }
+
+        function buildHotbar() {
+          const hotbar = document.getElementById('hotbar');
+          hotbar.innerHTML = '';
+          BLOCK_TYPES.forEach(function (block) {
+            const slot = document.createElement('button');
+            slot.type = 'button';
+            slot.className = 'hotbar-slot' + (block.id === input.selectedBlock ? ' selected' : '');
+            slot.setAttribute('aria-label', block.name);
+            slot.dataset.blockId = block.id;
+            slot.appendChild(createHotbarIcon(block.id));
+            slot.addEventListener('click', function (e) {
+              e.stopPropagation();
+              SoundFX.init();
+              selectBlock(block.id);
+            });
+            hotbar.appendChild(slot);
+          });
+          document.getElementById('selected-block-label').textContent = BLOCK_BY_ID[input.selectedBlock].name;
+        }
+
+        function toggleFlyMode() {
+          player.flyMode = !player.flyMode;
+          player.vel.y = 0;
+          document.getElementById('btn-fly').classList.toggle('active', player.flyMode);
+          document.getElementById('btn-fly-down').classList.toggle('visible', player.flyMode);
+          document.getElementById('jump-label').textContent = player.flyMode ? 'UP' : 'JUMP';
+          showToast(player.flyMode ? 'Fly Mode ON' : 'Fly Mode OFF');
+        }
+
+        function setupControls() {
+          // 1. Virtual Left Thumbstick (Listeners on joystick zone; passive window listeners never preventDefault)
+          const joyZone = document.getElementById('joystick-zone');
+          const joyKnob = document.getElementById('joystick-knob');
+          let joyTouchId = null;
+          let joyCenter = { x: 0, y: 0 };
+          const maxRadius = 40;
+
+          const updateJoystick = function (clientX, clientY) {
+            let dx = clientX - joyCenter.x;
+            let dy = clientY - joyCenter.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > maxRadius) {
+              dx = (dx / dist) * maxRadius;
+              dy = (dy / dist) * maxRadius;
+            }
+            joyKnob.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+            input.joyX = dx / maxRadius;
+            input.joyY = dy / maxRadius;
+          };
+
+          const resetJoystick = function () {
+            joyTouchId = null;
+            joyKnob.style.transform = 'translate(0px, 0px)';
+            input.joyX = 0;
+            input.joyY = 0;
+          };
+
+          joyZone.addEventListener('touchstart', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            SoundFX.init();
+            if (joyTouchId !== null) return;
+            const t = e.changedTouches[0];
+            joyTouchId = t.identifier;
+            const rect = joyZone.getBoundingClientRect();
+            joyCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            updateJoystick(t.clientX, t.clientY);
+          }, { passive: false });
+
+          window.addEventListener('touchmove', function (e) {
+            if (joyTouchId === null) return;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              const t = e.changedTouches[i];
+              if (t.identifier === joyTouchId) {
+                updateJoystick(t.clientX, t.clientY);
+                break;
+              }
+            }
+          }, { passive: true });
+
+          const endJoystick = function (e) {
+            if (joyTouchId === null) return;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              if (e.changedTouches[i].identifier === joyTouchId) {
+                resetJoystick();
+                break;
+              }
+            }
+          };
+          window.addEventListener('touchend', endJoystick, { passive: true });
+          window.addEventListener('touchcancel', endJoystick, { passive: true });
+
+          // 2. Camera Look & Multi-Touch Pinch-to-Zoom (ONLY on the 3D canvas element)
+          const canvas = renderer.domElement;
+          const canvasTouches = new Map();
+          let lastPinchDist = null;
+          let lastMouseX = 0;
+          let lastMouseY = 0;
+          let mouseDragging = false;
+          const lookSensitivityTouch = 0.0052;
+          const lookSensitivityMouse = 0.0042;
+
+          const getPinchDistance = function () {
+            const pts = Array.from(canvasTouches.values());
+            if (pts.length < 2) return null;
+            return Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+          };
+
+          canvas.addEventListener('touchstart', function (e) {
+            e.preventDefault();
+            SoundFX.init();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              const t = e.changedTouches[i];
+              if (t.identifier === joyTouchId) continue;
+              canvasTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+            }
+            lastPinchDist = canvasTouches.size >= 2 ? getPinchDistance() : null;
+          }, { passive: false });
+
+          canvas.addEventListener('touchmove', function (e) {
+            if (canvasTouches.size === 0) return;
+            let touchesCanvas = false;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              if (canvasTouches.has(e.changedTouches[i].identifier)) {
+                touchesCanvas = true;
+                break;
+              }
+            }
+            if (!touchesCanvas) return;
+            e.preventDefault();
+
+            if (canvasTouches.size === 1) {
+              for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                const prev = canvasTouches.get(t.identifier);
+                if (!prev) continue;
+                const dx = t.clientX - prev.x;
+                const dy = t.clientY - prev.y;
+                prev.x = t.clientX;
+                prev.y = t.clientY;
+                const sens = lookSensitivityTouch * (zoomState.currentFov / DEFAULT_FOV);
+                player.yaw -= dx * sens;
+                player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - dy * sens));
+              }
+            } else {
+              for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                const entry = canvasTouches.get(t.identifier);
+                if (entry) {
+                  entry.x = t.clientX;
+                  entry.y = t.clientY;
+                }
+              }
+              const dist = getPinchDistance();
+              if (lastPinchDist !== null && dist !== null && lastPinchDist > 6 && dist > 6) {
+                adjustZoomByFactor(Math.log(lastPinchDist / dist));
+              }
+              lastPinchDist = dist;
+            }
+          }, { passive: false });
+
+          const endCanvasTouch = function (e) {
+            if (canvasTouches.size === 0) return;
+            let removed = false;
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              if (canvasTouches.delete(e.changedTouches[i].identifier)) {
+                removed = true;
+              }
+            }
+            if (!removed) return;
+            lastPinchDist = canvasTouches.size >= 2 ? getPinchDistance() : null;
+          };
+          canvas.addEventListener('touchend', endCanvasTouch, { passive: true });
+          canvas.addEventListener('touchcancel', endCanvasTouch, { passive: true });
+
+          // Desktop Mouse Drag & Wheel / Trackpad Zoom (on canvas)
+          canvas.addEventListener('mousedown', function (e) {
+            if (e.button !== 0) return;
+            SoundFX.init();
+            mouseDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+          });
+          window.addEventListener('mousemove', function (e) {
+            if (!mouseDragging) return;
+            const dx = e.clientX - lastMouseX;
+            const dy = e.clientY - lastMouseY;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            const sens = lookSensitivityMouse * (zoomState.currentFov / DEFAULT_FOV);
+            player.yaw -= dx * sens;
+            player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - dy * sens));
+          });
+          window.addEventListener('mouseup', function () { mouseDragging = false; });
+
+          canvas.addEventListener('wheel', function (e) {
+            e.preventDefault();
+            const logDelta = e.ctrlKey
+              ? e.deltaY * 0.012
+              : Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 120) * 0.0018;
+            adjustZoomByFactor(logDelta);
+          }, { passive: false });
+
+          // Floating Zoom Badge tap-to-reset
+          const zoomBadge = document.getElementById('zoom-badge');
+          zoomBadge.addEventListener('click', function (e) {
+            e.stopPropagation();
+            resetZoom();
+          });
+
+          // 3. Action Buttons (Touch + Click)
+          const bindTapButton = function (id, fn) {
+            const btn = document.getElementById(id);
+            let handledTouch = false;
+            btn.addEventListener('touchstart', function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              handledTouch = true;
+              btn.classList.add('pressed');
+              fn();
+            }, { passive: false });
+            btn.addEventListener('touchend', function () { btn.classList.remove('pressed'); });
+            btn.addEventListener('touchcancel', function () { btn.classList.remove('pressed'); });
+            btn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              if (handledTouch) { handledTouch = false; return; }
+              fn();
+            });
+          };
+
+          const bindHoldButton = function (id, onChange) {
+            const btn = document.getElementById(id);
+            const start = function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              SoundFX.init();
+              btn.classList.add('pressed');
+              onChange(true);
+            };
+            const end = function (e) {
+              if (e) e.stopPropagation();
+              btn.classList.remove('pressed');
+              onChange(false);
+            };
+            btn.addEventListener('touchstart', start, { passive: false });
+            btn.addEventListener('touchend', end);
+            btn.addEventListener('touchcancel', end);
+            btn.addEventListener('mousedown', start);
+            window.addEventListener('mouseup', function () { end(); });
+          };
+
+          bindTapButton('btn-place', handlePlaceBlock);
+          bindTapButton('btn-break', handleBreakBlock);
+          bindHoldButton('btn-jump', function (held) { input.jumpHeld = held; });
+          bindHoldButton('btn-fly-down', function (held) { input.flyDownHeld = held; });
+
+          // 4. Top HUD Buttons & Modals
+          document.getElementById('btn-fly').addEventListener('click', toggleFlyMode);
+          document.getElementById('btn-view').addEventListener('click', cycleCameraView);
+          document.getElementById('btn-sky').addEventListener('click', function () {
+            skyIndex = (skyIndex + 1) % SKY_MODES.length;
+            applySkyMode(skyIndex);
+            showToast('Sky: ' + SKY_MODES[skyIndex].name);
+          });
+          document.getElementById('btn-save').addEventListener('click', saveWorld);
+          document.getElementById('btn-clear-bp').addEventListener('click', function () {
+            clearBlueprint();
+            showToast('Blueprint cleared');
+          });
+          document.getElementById('btn-rotate-bp').addEventListener('click', rotateActiveBlueprint);
+          document.getElementById('btn-autobuild-bp').addEventListener('click', toggleAutoBuild);
+          document.getElementById('btn-mute').addEventListener('click', function () {
+            SoundFX.muted = !SoundFX.muted;
+            document.getElementById('sound-icon').innerHTML = SoundFX.muted
+              ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
+              : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+            showToast(SoundFX.muted ? 'Sound Muted' : 'Sound On');
+          });
+          document.getElementById('btn-help').addEventListener('click', openWelcomeModal);
+
+          const bpModal = document.getElementById('blueprint-modal');
+          const resetModal = document.getElementById('reset-modal');
+          const bpGrid = document.getElementById('blueprint-grid');
+          let activeBpCategory = 'all';
+
+          function renderBlueprintGrid(category) {
+            activeBpCategory = category;
+            bpGrid.innerHTML = '';
+            const items = BLUEPRINT_CATALOG.filter(function (item) {
+              return category === 'all' || item.category === category;
+            });
+            items.forEach(function (item) {
+              const data = buildBlueprintData(item.id);
+              const card = document.createElement('button');
+              card.type = 'button';
+              card.className = 'bp-card';
+              card.innerHTML =
+                '<div class="bp-card-top">' +
+                  '<div class="bp-icon-badge">' + item.icon + '</div>' +
+                  '<div class="bp-card-title">' + item.name + '</div>' +
+                '</div>' +
+                '<div class="bp-card-desc">' + item.desc + '</div>' +
+                '<div class="bp-card-meta">' +
+                  '<span class="bp-meta-tag">' + data.width + '×' + data.depth + '×' + data.height + '</span>' +
+                  '<span class="bp-meta-count">' + data.blocks.length + ' blks</span>' +
+                '</div>';
+              card.addEventListener('click', function () {
+                spawnBlueprint(item.id);
+                bpModal.classList.remove('open');
+              });
+              bpGrid.appendChild(card);
+            });
+          }
+
+          document.querySelectorAll('.bp-filter-pill').forEach(function (pill) {
+            pill.addEventListener('click', function () {
+              document.querySelectorAll('.bp-filter-pill').forEach(function (p) {
+                p.classList.toggle('active', p === pill);
+              });
+              renderBlueprintGrid(pill.dataset.cat);
+            });
+          });
+          renderBlueprintGrid(activeBpCategory);
+
+          document.getElementById('btn-blueprints').addEventListener('click', function () {
+            bpModal.classList.add('open');
+          });
+          document.getElementById('btn-close-bp').addEventListener('click', function () {
+            bpModal.classList.remove('open');
+          });
+
+          document.getElementById('btn-reset').addEventListener('click', function () {
+            resetModal.classList.add('open');
+          });
+          document.getElementById('btn-cancel-reset').addEventListener('click', function () {
+            resetModal.classList.remove('open');
+          });
+          document.getElementById('btn-confirm-reset').addEventListener('click', function () {
+            try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+            generateStarterIsland();
+            resetModal.classList.remove('open');
+            showToast('Fresh island generated!');
+          });
+
+          // 5. Desktop Keyboard Controls
+          window.addEventListener('keydown', function (e) {
+            input.keys[e.code] = true;
+            if (!gameActive) return;
+            if (e.code === 'KeyE') handlePlaceBlock();
+            if (e.code === 'KeyQ') handleBreakBlock();
+            if (e.code === 'KeyF') toggleFlyMode();
+            if (e.code === 'KeyV') cycleCameraView();
+            if (e.code === 'KeyR') resetZoom();
+            if (e.code.startsWith('Digit')) {
+              const num = parseInt(e.code.replace('Digit', ''), 10);
+              if (num >= 1 && num <= BLOCK_TYPES.length) {
+                selectBlock(BLOCK_TYPES[num - 1].id);
+              }
+            }
+          });
+          window.addEventListener('keyup', function (e) {
+            input.keys[e.code] = false;
+          });
+        }
+
+        /* -------------------------------------------------------------------
+           INIT SCENE & ANIMATION LOOP
+           ------------------------------------------------------------------- */
+        const canvas = document.getElementById('three-canvas');
+        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: false, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(DEFAULT_FOV, window.innerWidth / window.innerHeight, 0.1, 110);
+
+        ambientLight = new THREE.AmbientLight(0xffffff, 0.56);
+        scene.add(ambientLight);
+
+        hemiLight = new THREE.HemisphereLight(0x99dcff, 0x4d7c4f, 0.35);
+        scene.add(hemiLight);
+
+        sunLight = new THREE.DirectionalLight(0xfff8e7, 0.95);
+        sunLight.position.set(24, 38, 18);
+        scene.add(sunLight);
+
+        worldGroup = new THREE.Group();
+        scene.add(worldGroup);
+
+        blueprintGroup = new THREE.Group();
+        scene.add(blueprintGroup);
+
+        particleGroup = new THREE.Group();
+        scene.add(particleGroup);
+
+        const edgesGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.015, 1.015, 1.015));
+        highlightBox = new THREE.LineSegments(
+          edgesGeo,
+          new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.85 })
+        );
+        highlightBox.visible = false;
+        scene.add(highlightBox);
+
+        ghostHighlightBox = new THREE.LineSegments(
+          edgesGeo,
+          new THREE.LineBasicMaterial({ color: 0x2dd4bf, transparent: true, opacity: 0.95 })
+        );
+        ghostHighlightBox.visible = false;
+        scene.add(ghostHighlightBox);
+
+        buildMaterials();
+        buildClouds();
+        buildPlayerAvatar();
+        applySkyMode(skyIndex);
+
+        if (!loadWorldIfSaved()) {
+          generateStarterIsland();
+        }
+
+        buildHotbar();
+        setupControls();
+
+        window.addEventListener('resize', function () {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+          renderer.setSize(w, h);
+        });
+
+        let lastTime = performance.now();
+        const crosshairEl = document.getElementById('crosshair');
+        const targetHintEl = document.getElementById('target-hint');
+
+        function animate(now) {
+          requestAnimationFrame(animate);
+          const dt = Math.min(0.05, (now - lastTime) / 1000 || 0.016);
+          lastTime = now;
+
+          updatePlayer(dt);
+          updateParticles(dt);
+          stepAutoBuild(dt);
+
+          // Smooth FOV & 3rd-person pull-back interpolation
+          const zoomAlpha = 1 - Math.exp(-14 * dt);
+          if (Math.abs(zoomState.targetFov - zoomState.currentFov) > 0.02) {
+            zoomState.currentFov += (zoomState.targetFov - zoomState.currentFov) * zoomAlpha;
+            camera.fov = zoomState.currentFov;
+            camera.updateProjectionMatrix();
+          }
+          if (Math.abs(zoomState.targetCamDist - zoomState.currentCamDist) > 0.005) {
+            zoomState.currentCamDist += (zoomState.targetCamDist - zoomState.currentCamDist) * zoomAlpha;
+          }
+
+          // Drift clouds
+          if (cloudGroup) {
+            for (let i = 0; i < cloudGroup.children.length; i++) {
+              const c = cloudGroup.children[i];
+              c.position.x += c.userData.speed * dt;
+              if (c.position.x > 24) c.position.x = -24;
+            }
+          }
+
+          // Raycast target highlight
+          currentTarget = castVoxelRay();
+          if (currentTarget.ghostHit) {
+            const g = currentTarget.ghostHit;
+            ghostHighlightBox.position.set(g.x + 0.5, g.y + 0.5, g.z + 0.5);
+            ghostHighlightBox.visible = true;
+            highlightBox.visible = false;
+            crosshairEl.classList.add('blueprint-target');
+            targetHintEl.textContent = 'Tap PLACE → ' + BLOCK_BY_ID[g.type].name;
+            targetHintEl.classList.add('visible');
+          } else if (currentTarget.solidHit) {
+            const h = currentTarget.solidHit;
+            highlightBox.position.set(h.x + 0.5, h.y + 0.5, h.z + 0.5);
+            highlightBox.visible = true;
+            ghostHighlightBox.visible = false;
+            crosshairEl.classList.remove('blueprint-target');
+            targetHintEl.classList.remove('visible');
+          } else {
+            highlightBox.visible = false;
+            ghostHighlightBox.visible = false;
+            crosshairEl.classList.remove('blueprint-target');
+            targetHintEl.classList.remove('visible');
+          }
+
+          renderer.render(scene, camera);
+        }
+
+        requestAnimationFrame(animate);
+      }
+
+      // Ensure Three.js is loaded (with unpkg fallback if cdnjs is blocked)
+      function startWhenReady() {
+        if (typeof THREE !== 'undefined') {
+          try {
+            bootEngine();
+          } catch (err) {
+            console.error('Block Craft 3D init error:', err);
+            showToast('Graphics error: please reload');
+          }
+        } else {
+          const fallback = document.createElement('script');
+          fallback.src = 'https://unpkg.com/three@0.128.0/build/three.min.js';
+          fallback.onload = function () {
+            try {
+              bootEngine();
+            } catch (err) {
+              console.error('Block Craft 3D fallback init error:', err);
+              showToast('Graphics error: please reload');
+            }
+          };
+          fallback.onerror = function () {
+            showToast('Could not load 3D library');
+          };
+          document.head.appendChild(fallback);
+        }
+      }
+
+      window.addEventListener('load', startWhenReady);
+    })();
+  </script>
+</body>
+</html>
